@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+
+contract EnhancedUSATWRFC is Initializable, ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    using SafeMathUpgradeable for uint256;
+
+    CountersUpgradeable.Counter private _tokenIdCounter;
+
+    struct FrackingWaterProject {
+        string projectIdentifier;
+        uint256 recycledWaterUsed; // in liters
+        uint256 freshWaterSaved; // in liters
+        bool exceedsBenchmark; // Whether the project exceeds sustainability benchmarks
+        bool verified;
+    }
+
+    mapping(uint256 => FrackingWaterProject) private _projects;
+
+    bytes32 public constant ROLE_PROJECT_REGISTRATOR = keccak256("ROLE_PROJECT_REGISTRATOR");
+    bytes32 public constant ROLE_VERIFIER = keccak256("ROLE_VERIFIER");
+
+    event ProjectRegistered(uint256 indexed projectId, FrackingWaterProject details);
+    event ProjectVerified(uint256 indexed projectId, bool status);
+    event CreditMinted(uint256 indexed tokenId, uint256 indexed projectId, address recipient);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __ERC721URIStorage_init();
+        __ERC721Enumerable_init();
+        __AccessControlEnumerable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(ROLE_PROJECT_REGISTRATOR, _msgSender());
+        _setupRole(ROLE_VERIFIER, _msgSender());
+    }
+
+    function registerProject(string memory projectIdentifier, uint256 recycledWaterUsed, uint256 freshWaterSaved) public onlyRole(ROLE_PROJECT_REGISTRATOR) {
+        _tokenIdCounter.increment();
+        uint256 projectId = _tokenIdCounter.current();
+        bool exceedsBenchmark = (recycledWaterUsed.div(freshWaterSaved) > 1); // Simplified benchmark for demonstration
+        
+        _projects[projectId] = FrackingWaterProject(projectIdentifier, recycledWaterUsed, freshWaterSaved, exceedsBenchmark, false);
+        emit ProjectRegistered(projectId, _projects[projectId]);
+    }
+
+    function verifyProject(uint256 projectId) public onlyRole(ROLE_VERIFIER) {
+        require(!_projects[projectId].verified, "Project already verified");
+        _projects[projectId].verified = true;
+        emit ProjectVerified(projectId, true);
+    }
+
+    function mintCredit(uint256 projectId, address recipient) public {
+        require(_projects[projectId].verified, "Project not verified");
+        require(_projects[projectId].exceedsBenchmark, "Project does not exceed sustainability benchmarks");
+
+        _tokenIdCounter.increment();
+        uint256 tokenId = _tokenIdCounter.current();
+        _mint(recipient, tokenId);
+        
+        string memory metadataURI = generateMetadataURI(projectId);
+        _setTokenURI(tokenId, metadataURI);
+
+        emit CreditMinted(tokenId, projectId, recipient);
+    }
+
+    function generateMetadataURI(uint256 projectId) internal view returns (string memory) {
+        // Placeholder for dynamic metadata URI generation
+        return string(abi.encodePacked("https://example.com/api/projects/", Strings.toString(projectId)));
+    }
+
+    // Override required OpenZeppelin hooks
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable) {
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    function _burn(uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721Upgradeable) {
+        super._burn(tokenId);
+    }
+
+    function tokenURI(uint256 tokenId) public view override(ERC721URIStorageUpgradeable, ERC721Upgradeable) returns (string memory) {
+        return super.tokenURI(tokenId);
+    }
+}
