@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+
+contract EnhancedCCUSCarbonCreditToken is Initializable, ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    CountersUpgradeable.Counter private _tokenIdCounter;
+
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant AUDITOR_ROLE = keccak256("AUDITOR_ROLE");
+    bytes32 public constant PROJECT_ADMIN_ROLE = keccak256("PROJECT_ADMIN_ROLE");
+
+    struct CCUSCreditData {
+        uint256 tokenId;
+        uint256 timestamp;
+        string projectIdentifier;
+        uint256 capturedCO2Tonnes;
+        bool isUtilized;
+        bool isStored;
+        string verificationDetails;
+        bool verified; // Enhanced verification status
+    }
+
+    mapping(uint256 => CCUSCreditData) private _ccusCreditsData;
+
+    event CCUSCreditMinted(uint256 indexed tokenId, string projectIdentifier, uint256 capturedCO2Tonnes, bool isUtilized, bool isStored, string verificationDetails);
+    event CCUSCreditUpdated(uint256 indexed tokenId, uint256 capturedCO2Tonnes, bool isUtilized, bool isStored, string verificationDetails, bool verified);
+    event ProjectVerified(uint256 indexed tokenId, bool verified);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721URIStorage_init();
+        __ERC721_init(name, symbol);
+        __AccessControlEnumerable_init();
+        __UUPSUpgradeable_init();
+        __ReentrancyGuard_init();
+        __Pausable_init();
+
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(MINTER_ROLE, _msgSender());
+        _setupRole(VERIFIER_ROLE, _msgSender());
+        _setupRole(PAUSER_ROLE, _msgSender());
+        _setupRole(AUDITOR_ROLE, _msgSender());
+        _setupRole(PROJECT_ADMIN_ROLE, _msgSender());
+    }
+
+    function mintCCUSCredit(
+        address to,
+        string memory uri,
+        string memory projectIdentifier,
+        uint256 capturedCO2Tonnes,
+        bool isUtilized,
+        bool isStored,
+        string memory verificationDetails
+    ) public onlyRole(MINTER_ROLE) whenNotPaused {
+        _tokenIdCounter.increment();
+        uint256 tokenId = _tokenIdCounter.current();
+        _safeMint(to, tokenId);
+        _setTokenURI(tokenId, uri);
+
+        CCUSCreditData memory newCreditData = CCUSCreditData({
+            tokenId: tokenId,
+            timestamp: block.timestamp,
+            projectIdentifier: projectIdentifier,
+            capturedCO2Tonnes: capturedCO2Tonnes,
+            isUtilized: isUtilized,
+            isStored: isStored,
+            verificationDetails: verificationDetails,
+            verified: false // Initial verified status is false
+        });
+        _ccusCreditsData[tokenId] = newCreditData;
+
+        emit CCUSCreditMinted(tokenId, projectIdentifier, capturedCO2Tonnes, isUtilized, isStored, verificationDetails);
+    }
+
+    function verifyProject(uint256 tokenId, bool verified) public onlyRole(VERIFIER_ROLE) {
+        require(_exists(tokenId), "CCUSCarbonCreditToken: Verification for nonexistent token");
+        CCUSCreditData storage credit = _ccusCreditsData[tokenId];
+        credit.verified = verified;
+
+        emit ProjectVerified(tokenId, verified);
+    }
+
+    function updateCCUSCreditData(
+        uint256 tokenId,
+        uint256 newCapturedCO2Tonnes,
+        bool newIsUtilized,
+        bool newIsStored,
+        string memory newVerificationDetails,
+        bool verified
+    ) public onlyRole(PROJECT_ADMIN_ROLE) {
+        require(_exists(tokenId), "CCUSCarbonCreditToken: Credit data update for nonexistent token");
+        CCUSCreditData storage credit = _ccusCreditsData[tokenId];
+        credit.capturedCO2Tonnes = newCapturedCO2Tonnes;
+        credit.isUtilized = newIsUtilized;
+        credit.isStored = newIsStored;
+        credit.verificationDetails = newVerificationDetails;
+        credit.verified = verified; // Update the verification status
+
+        emit CCUSCreditUpdated(tokenId, newCapturedCO2Tonnes, newIsUtilized, newIsStored, newVerificationDetails, verified);
+    }
+
+    function getCCUSCreditData(uint256 tokenId) public view returns (CCUSCreditData memory) {
+        require(_exists(tokenId), "CCUSCarbonCreditToken: Query for nonexistent token");
+        return _ccusCreditsData[tokenId];
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721Upgradeable) whenNotPaused {
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    function pause() public onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    function unpause() public onlyRole(PAUSER_ROLE) {
+        _unpause();
+    }
+
+    // Implement advanced verification logic, DAO governance for project decisions, and environmental impact tracking...
+}
