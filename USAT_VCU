@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+
+contract ImprovedVCSCarbonCredits is Initializable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable, PausableUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+
+    bytes32 public constant VALIDATOR_ROLE = keccak256("VALIDATOR_ROLE");
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+
+    CountersUpgradeable.Counter private _tokenIdCounter;
+
+    struct CarbonCredit {
+        uint256 metricTonsCO2e;
+        string projectIdentifier; // IPFS hash for project details
+        bool retired;
+        bool validated;
+        uint256 issueDate;
+        string additionalMetadata; // Additional metadata (e.g., project type, location)
+    }
+
+    mapping(uint256 => CarbonCredit) private _carbonCredits;
+
+    event CreditIssued(uint256 indexed tokenId, address indexed to, uint256 metricTonsCO2e, string projectIdentifier);
+    event CreditRetired(uint256 indexed tokenId);
+    event CreditValidated(uint256 indexed tokenId, address indexed validator);
+    event MetadataUpdated(uint256 indexed tokenId, string newMetadata);
+
+    function initialize() public initializer {
+        __ERC721Enumerable_init();
+        __AccessControlEnumerable_init();
+        __Pausable_init();
+        __ERC721_init("VCS Certified Carbon Credit", "VCSCC");
+
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _setupRole(ADMIN_ROLE, msg.sender);
+        _setupRole(VALIDATOR_ROLE, msg.sender);
+    }
+
+    function issueCredit(address to, uint256 metricTonsCO2e, string memory projectIdentifier, string memory additionalMetadata) public onlyRole(ADMIN_ROLE) {
+        require(metricTonsCO2e > 0, "Amount must be positive");
+        _tokenIdCounter.increment();
+        uint256 tokenId = _tokenIdCounter.current();
+
+        _mint(to, tokenId);
+        _carbonCredits[tokenId] = CarbonCredit({
+            metricTonsCO2e: metricTonsCO2e,
+            projectIdentifier: projectIdentifier,
+            retired: false,
+            validated: false,
+            issueDate: block.timestamp,
+            additionalMetadata: additionalMetadata
+        });
+
+        emit CreditIssued(tokenId, to, metricTonsCO2e, projectIdentifier);
+    }
+
+    function validateCredit(uint256 tokenId) public onlyRole(VALIDATOR_ROLE) {
+        require(_exists(tokenId), "Nonexistent token");
+        CarbonCredit storage credit = _carbonCredits[tokenId];
+        require(!credit.validated, "Already validated");
+
+        credit.validated = true;
+        emit CreditValidated(tokenId, msg.sender);
+    }
+
+    function retireCredit(uint256 tokenId) public {
+        require(_exists(tokenId), "Nonexistent token");
+        require(ownerOf(tokenId) == msg.sender, "Not owner");
+        CarbonCredit storage credit = _carbonCredits[tokenId];
+        require(!credit.retired, "Already retired");
+
+        credit.retired = true;
+        emit CreditRetired(tokenId);
+    }
+
+    function updateMetadata(uint256 tokenId, string memory newMetadata) public onlyRole(ADMIN_ROLE) {
+        require(_exists(tokenId), "Nonexistent token");
+        _carbonCredits[tokenId].additionalMetadata = newMetadata;
+        emit MetadataUpdated(tokenId, newMetadata);
+    }
+
+    function getCarbonCreditDetails(uint256 tokenId) public view returns (CarbonCredit memory) {
+        require(_exists(tokenId), "Nonexistent token");
+        return _carbonCredits[tokenId];
+    }
+
+    function batchIssueCredits(address[] memory to, uint256[] memory metricTonsCO2e, string[] memory projectIdentifiers, string[] memory additionalMetadatas) public onlyRole(ADMIN_ROLE) {
+        require(to.length == metricTonsCO2e.length, "Mismatched array lengths");
+        require(metricTonsCO2e.length == projectIdentifiers.length, "Mismatched array lengths");
+        require(projectIdentifiers.length == additionalMetadatas.length, "Mismatched array lengths");
+
+        for (uint i = 0; i < to.length; i++) {
+            issueCredit(to[i], metricTonsCO2e[i], projectIdentifiers[i], additionalMetadatas[i]);
+        }
+    }
+
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721EnumerableUpgradeable) whenNotPaused {
+        super._beforeTokenTransfer(from, to, tokenId);
+        require(!_carbonCredits[tokenId].retired, "Retired credit");
+    }
+
+    function pause() public onlyRole(ADMIN_ROLE) {
+        _pause();
+    }
+
+    function unpause() public onlyRole(ADMIN_ROLE) {
+        _unpause();
+    }
+
+    // Additional functions for role management, upgradability safeguards, and other enhancements can be implemented here...
+}
