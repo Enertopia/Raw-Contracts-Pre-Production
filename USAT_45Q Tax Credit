@@ -1,0 +1,128 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/finance/PaymentSplitterUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+
+/// @title A contract for creating and managing fractionalized NFTs representing 45Q Tax Credits
+contract FractionalShares is ERC20Upgradeable {
+    /// Initializes the ERC20 token
+    /// @param name The name of the fractional shares token
+    /// @param symbol The symbol of the fractional shares token
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC20_init(name, symbol);
+    }
+}
+
+contract USAT45QTaxCreditsNFTUpgradeable is Initializable, ERC721EnumerableUpgradeable, OwnableUpgradeable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, PaymentSplitterUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+
+    // State variables
+    CountersUpgradeable.Counter private _tokenIdCounter;
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant AUCTIONEER_ROLE = keccak256("AUCTIONEER_ROLE");
+    bytes32 public constant FRACTIONALIZER_ROLE = keccak256("FRACTIONALIZER_ROLE");
+
+    mapping(uint256 => address) private _fractionalizedTokens;
+
+    // Structs
+    struct NFTMetadata {
+        string assetRequirement;
+        string assetDescription;
+        string market;
+        string assetPrice;
+        string usatScore;
+    }
+
+    // Mappings
+    mapping(uint256 => NFTMetadata) private _tokenMetadata;
+
+    // Events
+    event NFTMinted(uint256 indexed tokenId, address indexed owner, NFTMetadata metadata);
+    event NFTFractionalized(uint256 indexed tokenId, address sharesTokenAddress, uint256 sharesAmount);
+    event NFTDefractionalized(uint256 indexed tokenId);
+
+    /// Initializes the contract with necessary parameters and roles
+    function initialize(
+        string memory name,
+        string memory symbol,
+        address[] memory payees,
+        uint256[] memory shares_
+    ) public initializer {
+        __ERC721Enumerable_init();
+        __ERC721_init(name, symbol);
+        __Ownable_init();
+        __AccessControl_init();
+        __ReentrancyGuard_init();
+        __PaymentSplitter_init(payees, shares_);
+        __UUPSUpgradeable_init();
+
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(MINTER_ROLE, _msgSender());
+        _setupRole(AUCTIONEER_ROLE, _msgSender());
+        _setupRole(FRACTIONALIZER_ROLE, _msgSender());
+    }
+
+    /// Mints a new NFT with specified metadata
+    function mintNFT(
+        address to,
+        NFTMetadata memory metadata
+    ) public onlyRole(MINTER_ROLE) {
+        _tokenIdCounter.increment();
+        uint256 newItemId = _tokenIdCounter.current();
+
+        _mint(to, newItemId);
+
+        _tokenMetadata[newItemId] = metadata;
+
+        emit NFTMinted(newItemId, to, metadata);
+    }
+
+    /// Fractionalizes an NFT into ERC20 shares
+    function fractionalizeNFT(uint256 tokenId, uint256 sharesAmount, string memory sharesName, string memory sharesSymbol) public onlyRole(FRACTIONALIZER_ROLE) {
+        require(_exists(tokenId), "ERC721Metadata: URI query for nonexistent token");
+        require(_fractionalizedTokens[tokenId] == address(0), "NFT is already fractionalized");
+        require(ownerOf(tokenId) == _msgSender(), "Caller is not the owner");
+
+        FractionalShares sharesToken = new FractionalShares();
+        sharesToken.initialize(sharesName, sharesSymbol);
+        sharesToken.mint(_msgSender(), sharesAmount);
+
+        _fractionalizedTokens[tokenId] = address(sharesToken);
+
+        _transfer(_msgSender(), address(this), tokenId);
+
+        emit NFTFractionalized(tokenId, address(sharesToken), sharesAmount);
+    }
+
+    /// Defractionalizes an NFT, returning it from ERC20 shares to an NFT
+    function defractionalizeNFT(uint256 tokenId) public onlyRole(FRACTIONALIZER_ROLE) {
+        require(_exists(tokenId), "ERC721Metadata: URI query for nonexistent token");
+        address sharesTokenAddress = _fractionalizedTokens[tokenId];
+        require(sharesTokenAddress != address(0), "NFT is not fractionalized");
+
+        FractionalShares sharesToken = FractionalShares(sharesTokenAddress);
+        uint256 totalShares = sharesToken.totalSupply();
+
+        require(sharesToken.balanceOf(_msgSender()) == totalShares, "Caller does not own all shares");
+
+        sharesToken.burn(_msgSender(), totalShares);
+
+        _transfer(address(this), _msgSender(), tokenId);
+
+        _fractionalizedTokens[tokenId] = address(0);
+
+        emit NFTDefractionalized(tokenId);
+    }
+
+    /// Authorizes an upgrade to a new contract implementation
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    // Additional helper functions and logic can be implemented as necessary
+}
