@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+
+contract EnhancedUSATEORC is Initializable, ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    using SafeMathUpgradeable for uint256;
+
+    CountersUpgradeable.Counter private _tokenIdCounter;
+
+    struct EORProject {
+        string projectIdentifier;
+        uint256 co2Used; // in tonnes
+        uint256 oilRecovered; // in barrels
+        bool verified;
+        address projectOwner;
+    }
+
+    mapping(uint256 => EORProject) private _projects;
+    bytes32 public constant ROLE_PROJECT_REGISTRATOR = keccak256("ROLE_PROJECT_REGISTRATOR");
+    bytes32 public constant ROLE_VERIFIER = keccak256("ROLE_VERIFIER");
+
+    event ProjectRegistered(uint256 indexed projectId, string projectIdentifier, address projectOwner);
+    event ProjectVerified(uint256 indexed projectId, bool verified);
+    event CreditMinted(uint256 indexed tokenId, uint256 indexed projectId, address recipient);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __ERC721URIStorage_init();
+        __ERC721Enumerable_init();
+        __AccessControlEnumerable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+    }
+
+    function registerProject(string memory projectIdentifier, uint256 co2Used, uint256 oilRecovered, address projectOwner) public onlyRole(ROLE_PROJECT_REGISTRATOR) {
+        _tokenIdCounter.increment();
+        uint256 projectId = _tokenIdCounter.current();
+        _projects[projectId] = EORProject(projectIdentifier, co2Used, oilRecovered, false, projectOwner);
+        emit ProjectRegistered(projectId, projectIdentifier, projectOwner);
+    }
+
+    function verifyProject(uint256 projectId) public onlyRole(ROLE_VERIFIER) {
+        require(!_projects[projectId].verified, "Project already verified");
+        _projects[projectId].verified = true;
+        emit ProjectVerified(projectId, true);
+    }
+
+    function mintCredit(uint256 projectId, address recipient) public {
+        require(_projects[projectId].verified, "Project not verified");
+        require(hasRole(ROLE_PROJECT_REGISTRATOR, _projects[projectId].projectOwner), "Caller is not project owner or authorized registrator");
+
+        _tokenIdCounter.increment();
+        uint256 tokenId = _tokenIdCounter.current();
+        _mint(recipient, tokenId);
+
+        string memory metadataURI = generateMetadataURI(projectId);
+        _setTokenURI(tokenId, metadataURI);
+
+        emit CreditMinted(tokenId, projectId, recipient);
+    }
+
+    function generateMetadataURI(uint256 projectId) internal view returns (string memory) {
+        // Pseudocode for generating metadata URI based on project details
+        // This function would construct a URI pointing to a JSON file with all project details
+        // For simplicity, this is represented as a placeholder string
+        return string(abi.encodePacked("https://example.com/api/projects/", projectId.toString()));
+    }
+
+    function getProjectDetails(uint256 projectId) public view returns (EORProject memory) {
+        require(_projects[projectId].projectOwner != address(0), "Project does not exist");
+        return _projects[projectId];
+    }
+
+    // Override functions from OpenZeppelin contracts
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable) {
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    function _burn(uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721Upgradeable) {
+        super._burn(tokenId);
+    }
+
+    function tokenURI(uint256 tokenId) public view override(ERC721URIStorageUpgradeable, ERC721Upgradeable) returns (string memory) {
+        return super.tokenURI(tokenId);
+    }
+}
