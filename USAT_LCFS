@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
+
+contract ImprovedLCFSCarbonCreditToken is Initializable, ERC721URIStorageUpgradeable, OwnableUpgradeable, AccessControlEnumerableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.UintSet;
+
+    CountersUpgradeable.Counter private _tokenIdCounter;
+    EnumerableSetUpgradeable.UintSet private _validatedProjects;
+
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+
+    struct CreditData {
+        uint256 timestamp;
+        string fuelType;
+        uint256 emissionsReduced;
+        string verificationDetails;
+        bool validated;
+    }
+
+    mapping(uint256 => CreditData) private _creditsData;
+
+    event CreditMinted(uint256 indexed tokenId, string fuelType, uint256 emissionsReduced, string verificationDetails);
+    event CreditValidated(uint256 indexed tokenId, bool validated);
+    event CreditUpdated(uint256 indexed tokenId, uint256 emissionsReduced, string verificationDetails);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __ERC721URIStorage_init();
+        __Ownable_init();
+        __AccessControlEnumerable_init();
+        __UUPSUpgradeable_init();
+        __ReentrancyGuard_init();
+        __Pausable_init();
+
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(MINTER_ROLE, _msgSender());
+        _setupRole(VERIFIER_ROLE, _msgSender());
+        _setupRole(PAUSER_ROLE, _msgSender());
+        _setupRole(UPGRADER_ROLE, _msgSender());
+    }
+
+    function mintCredit(address to, string memory uri, string memory fuelType, uint256 emissionsReduced, string memory verificationDetails) public onlyRole(MINTER_ROLE) whenNotPaused {
+        require(emissionsReduced > 0, "Emissions reduced must be positive");
+
+        _tokenIdCounter.increment();
+        uint256 tokenId = _tokenIdCounter.current();
+        _safeMint(to, tokenId);
+        _setTokenURI(tokenId, uri);
+
+        _creditsData[tokenId] = CreditData({
+            timestamp: block.timestamp,
+            fuelType: fuelType,
+            emissionsReduced: emissionsReduced,
+            verificationDetails: verificationDetails,
+            validated: false
+        });
+
+        emit CreditMinted(tokenId, fuelType, emissionsReduced, verificationDetails);
+    }
+
+    function validateCredit(uint256 tokenId, bool validated) public onlyRole(VERIFIER_ROLE) {
+        require(_exists(tokenId), "Credit does not exist");
+        _creditsData[tokenId].validated = validated;
+
+        if (validated) {
+            _validatedProjects.add(tokenId);
+        } else {
+            _validatedProjects.remove(tokenId);
+        }
+
+        emit CreditValidated(tokenId, validated);
+    }
+
+    function updateCredit(uint256 tokenId, uint256 newEmissionsReduced, string memory newVerificationDetails) public {
+        require(_exists(tokenId), "Credit does not exist");
+        require(hasRole(VERIFIER_ROLE, _msgSender()) || ownerOf(tokenId) == _msgSender(), "Caller is not authorized");
+
+        CreditData storage credit = _creditsData[tokenId];
+        credit.emissionsReduced = newEmissionsReduced;
+        credit.verificationDetails = newVerificationDetails;
+
+        emit CreditUpdated(tokenId, newEmissionsReduced, newVerificationDetails);
+    }
+
+    function getCreditData(uint256 tokenId) public view returns (CreditData memory) {
+        require(_exists(tokenId), "Credit does not exist");
+        return _creditsData[tokenId];
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+
+    // Additional functions as needed...
+}
