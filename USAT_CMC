@@ -10,7 +10,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
 
-contract CarbonCreditToken is Initializable, ERC721URIStorageUpgradeable, OwnableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
+contract USATCMCCarbonCreditToken is Initializable, ERC721URIStorageUpgradeable, OwnableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
     using CountersUpgradeable for CountersUpgradeable.Counter;
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
@@ -23,15 +23,16 @@ contract CarbonCreditToken is Initializable, ERC721URIStorageUpgradeable, Ownabl
         uint256 timestamp;
         string projectIdentifier;
         uint256 carbonTonnes;
+        string conversionProcess; // Additional field for conversion process description
     }
 
     mapping(uint256 => CarbonCreditData) private _carbonCreditsData;
 
-    event CarbonCreditMinted(address indexed to, uint256 indexed tokenId, string projectIdentifier, uint256 carbonTonnes);
+    event CarbonCreditMinted(address indexed to, uint256 indexed tokenId, string projectIdentifier, uint256 carbonTonnes, string conversionProcess);
     event CarbonCreditBurned(uint256 indexed tokenId);
 
-    function initialize(string memory name, string memory symbol) public initializer {
-        __ERC721_init(name, symbol);
+    function initialize() public initializer {
+        __ERC721_init("USAT Carbon Mineralization Credit", "CMC");
         __Ownable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
@@ -54,9 +55,10 @@ contract CarbonCreditToken is Initializable, ERC721URIStorageUpgradeable, Ownabl
         _unpause();
     }
 
-    function safeMint(address to, string memory uri, string memory projectIdentifier, uint256 carbonTonnes) public onlyRole(MINTER_ROLE) nonReentrant whenNotPaused {
+    function safeMint(address to, string memory uri, string memory projectIdentifier, uint256 carbonTonnes, string memory conversionProcess) public onlyRole(MINTER_ROLE) nonReentrant whenNotPaused {
         require(to != address(0), "Mint to the zero address");
         require(bytes(projectIdentifier).length > 0, "Project identifier is empty");
+        require(bytes(conversionProcess).length > 0, "Conversion process description is empty");
         require(carbonTonnes > 0, "Carbon tonnes must be positive");
 
         uint256 tokenId = _tokenIdCounter.current();
@@ -67,10 +69,11 @@ contract CarbonCreditToken is Initializable, ERC721URIStorageUpgradeable, Ownabl
         _carbonCreditsData[tokenId] = CarbonCreditData({
             timestamp: block.timestamp,
             projectIdentifier: projectIdentifier,
-            carbonTonnes: carbonTonnes
+            carbonTonnes: carbonTonnes,
+            conversionProcess: conversionProcess // Store the conversion process
         });
 
-        emit CarbonCreditMinted(to, tokenId, projectIdentifier, carbonTonnes);
+        emit CarbonCreditMinted(to, tokenId, projectIdentifier, carbonTonnes, conversionProcess);
     }
 
     function burn(uint256 tokenId) public onlyRole(BURNER_ROLE) {
