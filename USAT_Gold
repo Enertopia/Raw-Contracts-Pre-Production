@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
+contract EnhancedUSATGoldToken is Initializable, ERC721URIStorageUpgradeable, OwnableUpgradeable, 
+PausableUpgradeable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+
+    CountersUpgradeable.Counter private _tokenIdCounter;
+
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+    bytes32 public constant AUDITOR_ROLE = keccak256("AUDITOR_ROLE");
+
+    struct GoldData {
+        string mineName;
+        string environmentalImpact;
+        uint256 estimatedValue;
+        uint256 extractionCost;
+        uint256 feasibilityScore;
+        uint256 goldPurity;       
+        uint256 reserveSize;      
+        string operationalStatus; 
+        string complianceStatus;  
+    }
+
+    mapping(uint256 => GoldData) private _goldDetails;
+
+    event GoldTokenMinted(address to, uint256 tokenId, GoldData goldData);
+    event GoldDetailsUpdated(uint256 tokenId, GoldData goldData);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721URIStorage_init(name, symbol);
+        __Ownable_init();
+        __Pausable_init();
+        __AccessControl_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(MINTER_ROLE, _msgSender());
+        _setupRole(PAUSER_ROLE, _msgSender());
+        _setupRole(UPGRADER_ROLE, _msgSender());
+        _setupRole(AUDITOR_ROLE, _msgSender());
+    }
+
+    function mintGoldToken(
+        address to,
+        string memory uri,
+        GoldData memory goldData
+    ) public onlyRole(MINTER_ROLE) whenNotPaused nonReentrant {
+        _tokenIdCounter.increment();
+        uint256 tokenId = _tokenIdCounter.current();
+        
+        _mint(to, tokenId);
+        _setTokenURI(tokenId, uri);
+        _goldDetails[tokenId] = goldData;
+
+        emit GoldTokenMinted(to, tokenId, goldData);
+    }
+
+    function getGoldDetails(uint256 tokenId) public view returns (GoldData memory) {
+        require(_exists(tokenId), "Nonexistent token");
+        return _goldDetails[tokenId];
+    }
+
+    function updateGoldDetails(uint256 tokenId, GoldData memory goldData) public onlyOwner {
+        require(_exists(tokenId), "Nonexistent token");
+
+        _goldDetails[tokenId] = goldData;
+
+        emit GoldDetailsUpdated(tokenId, goldData);
+    }
+
+    function pause() public onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    function unpause() public onlyRole(PAUSER_ROLE) {
+        _unpause();
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+
+    // Additional functions for asset verification, token lifecycle management, and enhanced auditing...
+}
