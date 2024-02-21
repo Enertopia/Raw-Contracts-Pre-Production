@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+
+contract USATGoldStandardVERs is Initializable, ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+
+    // State variables
+    CountersUpgradeable.Counter private _tokenIdCounter;
+    
+    // Define roles
+    bytes32 public constant ROLE_ADMIN = DEFAULT_ADMIN_ROLE;
+    bytes32 public constant ROLE_VERIFIER = keccak256("ROLE_VERIFIER");
+    bytes32 public constant ROLE_MINTER = keccak256("ROLE_MINTER");
+
+    // Events
+    event VERMinted(uint256 indexed tokenId, address indexed recipient, string carbonCreditMetadataURI);
+    event VERMetadataUpdated(uint256 indexed tokenId, string newMetadataURI);
+
+    // Initialization function
+    function initialize() public initializer {
+        __ERC721_init("USAT Gold Standard VERs", "USATGSVER");
+        __ERC721URIStorage_init();
+        __ERC721Enumerable_init();
+        __AccessControlEnumerable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+
+        _setupRole(ROLE_ADMIN, _msgSender());
+        _setupRole(ROLE_VERIFIER, _msgSender());
+        _setupRole(ROLE_MINTER, _msgSender());
+    }
+
+    // Minting function for verified carbon credits
+    function mintVER(address recipient, string memory carbonCreditMetadataURI) public onlyRole(ROLE_MINTER) {
+        _tokenIdCounter.increment();
+        uint256 newItemId = _tokenIdCounter.current();
+
+        _mint(recipient, newItemId);
+        _setTokenURI(newItemId, carbonCreditMetadataURI);
+
+        emit VERMinted(newItemId, recipient, carbonCreditMetadataURI);
+    }
+
+    // Batch minting function for verified carbon credits
+    function batchMintVER(address[] calldata recipients, string[] calldata metadataURIs) public onlyRole(ROLE_MINTER) {
+        require(recipients.length == metadataURIs.length, "Mismatch between recipient addresses and metadata URIs");
+
+        for (uint256 i = 0; i < recipients.length; i++) {
+            mintVER(recipients[i], metadataURIs[i]);
+        }
+    }
+
+    // Update metadata URI for a specific VER
+    function updateVERMetadata(uint256 tokenId, string memory newMetadataURI) public onlyRole(ROLE_VERIFIER) {
+        require(_exists(tokenId), "Attempt to update non-existent token");
+        _setTokenURI(tokenId, newMetadataURI);
+
+        emit VERMetadataUpdated(tokenId, newMetadataURI);
+    }
+
+    // Override functions
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable) {
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ROLE_ADMIN) {}
+
+    // Ensure ERC721URIStorage and ERC721Enumerable hooks are properly called
+    function _burn(uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721Upgradeable) {
+        super._burn(tokenId);
+    }
+
+    function tokenURI(uint256 tokenId) public view override(ERC721URIStorageUpgradeable, ERC721Upgradeable) returns (string memory) {
+        return super.tokenURI(tokenId);
+    }
+}
