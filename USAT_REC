@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+
+contract RenewableEnergyNFTandFractionalization is Initializable, ERC721EnumerableUpgradeable, OwnableUpgradeable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+
+    CountersUpgradeable.Counter private _tokenIdCounter;
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant FRACTIONALIZER_ROLE = keccak256("FRACTIONALIZER_ROLE");
+
+    struct RenewableEnergyMetadata {
+        string energySource;
+        uint256 energyAmountKWh;
+        string generationDate;
+        string expirationDate;
+        string certificationStandard;
+        string certifyingBody;
+    }
+
+    mapping(uint256 => RenewableEnergyMetadata) private _tokenMetadata;
+    mapping(uint256 => bool) public isFractionalized;
+
+    event RenewableEnergyNFTCreated(uint256 indexed tokenId, RenewableEnergyMetadata metadata);
+    event Fractionalized(uint256 indexed tokenId, uint256 totalShares);
+    event Defractionalized(uint256 indexed tokenId);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721Enumerable_init();
+        __ERC721_init(name, symbol);
+        __ERC20_init("RenewableEnergyNFTShares", "RENFTS");
+        __Ownable_init();
+        __AccessControl_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _setupRole(MINTER_ROLE, msg.sender);
+        _setupRole(FRACTIONALIZER_ROLE, msg.sender);
+    }
+
+    function mintNFT(address to, RenewableEnergyMetadata memory metadata) public onlyRole(MINTER_ROLE) {
+        require(!isFractionalized[_tokenIdCounter.current()], "Token is fractionalized");
+        _tokenIdCounter.increment();
+        uint256 newItemId = _tokenIdCounter.current();
+
+        _mint(to, newItemId);
+        _tokenMetadata[newItemId] = metadata;
+
+        emit RenewableEnergyNFTCreated(newItemId, metadata);
+    }
+
+    function fractionalize(uint256 tokenId, uint256 totalShares) public onlyRole(FRACTIONALIZER_ROLE) {
+        require(_exists(tokenId), "Token does not exist");
+        require(ownerOf(tokenId) == msg.sender, "Caller is not the owner");
+        require(!isFractionalized[tokenId], "Already fractionalized");
+
+        isFractionalized[tokenId] = true;
+        _mint(msg.sender, totalShares); // Mint ERC-20 shares representing the fractional ownership
+
+        emit Fractionalized(tokenId, totalShares);
+    }
+
+    function getRenewableEnergyMetadata(uint256 tokenId) public view returns (RenewableEnergyMetadata memory) {
+        require(_exists(tokenId), "Nonexistent token");
+        return _tokenMetadata[tokenId];
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    // Implement defractionalization if needed, ensuring a secure mechanism for converting back to NFT from fractional shares
+    // Note: The implementation requires careful consideration to ensure fairness and security
+}
