@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol"; // For real-time price feeds
+
+contract USATGaExtended is ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+
+    CountersUpgradeable.Counter private _assetIds;
+    mapping(uint256 => GalliumAsset) public galliumAssets;
+    AggregatorV3Interface internal priceFeed;
+
+    struct GalliumAsset {
+        uint256 weight; // in grams
+        string location; // Mining location or storage
+        uint256 environmentalScore; // Environmental impact score
+        string metadataURI; // URI for extended metadata, including ESG reports
+        bool verified; // Verification status
+    }
+
+    bytes32 public constant ROLE_ADMIN = DEFAULT_ADMIN_ROLE;
+    bytes32 public constant ROLE_MINTER = keccak256("ROLE_MINTER");
+    bytes32 public constant ROLE_VERIFIER = keccak256("ROLE_VERIFIER");
+    bytes32 public constant ROLE_AUDITOR = keccak256("ROLE_AUDITOR");
+
+    event AssetRegistered(uint256 indexed assetId, GalliumAsset asset);
+    event AssetVerified(uint256 indexed assetId, bool status);
+    event EnvironmentalScoreUpdated(uint256 indexed assetId, uint256 score);
+    event MetadataUpdated(uint256 indexed assetId, string uri);
+
+    function initialize(string memory name, string memory symbol, address _priceFeedAddress) public initializer {
+        __ERC721_init(name, symbol);
+        __AccessControlEnumerable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        _setupRole(ROLE_ADMIN, _msgSender());
+        priceFeed = AggregatorV3Interface(_priceFeedAddress); // Initialize Chainlink price feed
+    }
+
+    function registerAsset(uint256 weight, string memory location, string memory metadataURI) public onlyRole(ROLE_MINTER) {
+        require(weight > 0, "Weight must be positive");
+        _assetIds.increment();
+        uint256 newAssetId = _assetIds.current();
+
+        GalliumAsset memory newAsset = GalliumAsset({
+            weight: weight,
+            location: location,
+            environmentalScore: 0, // Default score, to be updated upon verification
+            metadataURI: metadataURI,
+            verified: false
+        });
+        
+        galliumAssets[newAssetId] = newAsset;
+        _mint(_msgSender(), newAssetId);
+        _setTokenURI(newAssetId, metadataURI);
+
+        emit AssetRegistered(newAssetId, newAsset);
+    }
+
+    // Functions for updating asset status, environmental scores, and handling verifications
+    function verifyAsset(uint256 assetId) public onlyRole(ROLE_VERIFIER) {
+        require(_exists(assetId), "Asset does not exist");
+        galliumAssets[assetId].verified = true;
+        emit AssetVerified(assetId, true);
+    }
+
+    function updateEnvironmentalScore(uint256 assetId, uint256 score) public onlyRole(ROLE_AUDITOR) {
+        require(_exists(assetId), "Asset does not exist");
+        galliumAssets[assetId].environmentalScore = score;
+        emit EnvironmentalScoreUpdated(assetId, score);
+    }
+
+    function updateMetadataURI(uint256 assetId, string memory newURI) public onlyRole(ROLE_MINTER) {
+        require(_exists(assetId), "Asset does not exist");
+        galliumAssets[assetId].metadataURI = newURI;
+        _setTokenURI(assetId, newURI);
+        emit MetadataUpdated(assetId, newURI);
+    }
+
+    // Chainlink price feed integration for real-time gallium price updates
+    function getLatestPrice() public view returns (int) {
+        (
+            , 
+            int price,
+            ,
+            ,
+            
+        ) = priceFeed.latestRoundData();
+        return price; // Return the latest price of gallium (example uses a placeholder)
+    }
+
+    // Include additional functionalities as necessary, such as stakeholder engagement, governance mechanisms, and dynamic metadata updates.
+
+    // Override functions for security and upgradeability
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ROLE_ADMIN) {}
+    function supportsInterface(bytes4 interfaceId) public view override(AccessControlEnumerableUpgradeable, ERC721URIStorageUpgradeable) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+}
