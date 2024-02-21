@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+
+contract USATPlatinumAdvanced is Initializable, ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    using SafeMathUpgradeable for uint256;
+
+    // State variables
+    CountersUpgradeable.Counter private _tokenIdCounter;
+    mapping(uint256 => PlatinumAsset) private _platinumAssets;
+
+    struct PlatinumAsset {
+        uint256 weight; // Weight in grams
+        string location; // Location of the asset
+        bool verified; // Verification status
+        uint256 auditTimestamp; // Timestamp of the last audit
+    }
+
+    bytes32 public constant ROLE_ADMIN = DEFAULT_ADMIN_ROLE;
+    bytes32 public constant ROLE_AUDITOR = keccak256("ROLE_AUDITOR");
+    bytes32 public constant ROLE_MINTER = keccak256("ROLE_MINTER");
+    bytes32 public constant ROLE_VERIFIER = keccak256("ROLE_VERIFIER");
+
+    // Events
+    event PlatinumAssetRegistered(uint256 indexed tokenId, uint256 weight, string location);
+    event PlatinumAssetVerified(uint256 indexed tokenId, bool verified);
+    event PlatinumAssetAudited(uint256 indexed tokenId, uint256 auditTimestamp);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __ERC721URIStorage_init();
+        __AccessControlEnumerable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        _setupRole(ROLE_ADMIN, _msgSender());
+    }
+
+    function registerPlatinumAsset(uint256 weight, string memory location, string memory metadataURI) public onlyRole(ROLE_MINTER) {
+        require(weight > 0, "Weight must be positive");
+        _tokenIdCounter.increment();
+        uint256 tokenId = _tokenIdCounter.current();
+
+        _mint(_msgSender(), tokenId);
+        _setTokenURI(tokenId, metadataURI);
+        _platinumAssets[tokenId] = PlatinumAsset(weight, location, false, 0);
+
+        emit PlatinumAssetRegistered(tokenId, weight, location);
+    }
+
+    function verifyPlatinumAsset(uint256 tokenId) public onlyRole(ROLE_VERIFIER) {
+        require(_exists(tokenId), "Token does not exist");
+        _platinumAssets[tokenId].verified = true;
+
+        emit PlatinumAssetVerified(tokenId, true);
+    }
+
+    function auditPlatinumAsset(uint256 tokenId) public onlyRole(ROLE_AUDITOR) {
+        require(_exists(tokenId), "Token does not exist");
+        _platinumAssets[tokenId].auditTimestamp = block.timestamp;
+
+        emit PlatinumAssetAudited(tokenId, block.timestamp);
+    }
+
+    // Enhanced metadata URI generation, potentially incorporating IPFS for immutable data storage
+    function updateTokenURI(uint256 tokenId, string memory newURI) public onlyRole(ROLE_ADMIN) {
+        require(_exists(tokenId), "Token does not exist");
+        _setTokenURI(tokenId, newURI);
+    }
+
+    // Override functions
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ROLE_ADMIN) {}
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721URIStorageUpgradeable) {
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
+    function supportsInterface(bytes4 interfaceId) public view override(AccessControlEnumerableUpgradeable, ERC721URIStorageUpgradeable) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+    function _burn(uint256 tokenId) internal override(ERC721URIStorageUpgradeable) {
+        super._burn(tokenId);
+        delete _platinumAssets[tokenId];
+    }
+    function tokenURI(uint256 tokenId) public view override(ERC721URIStorageUpgradeable) returns (string memory) {
+        return super.tokenURI(tokenId);
+    }
+}
