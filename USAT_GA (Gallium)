@@ -1,0 +1,86 @@
+pragma solidity ^0.8.23;
+
+// Importing necessary OpenZeppelin contracts
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+// Assuming Oracle and other necessary interfaces are defined elsewhere
+
+contract USATGaAdvanced is ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+
+    // Struct for Gallium asset details
+    struct GalliumAsset {
+        // Asset details
+        uint256 weight;
+        string location;
+        // Sustainability and compliance metrics
+        uint256 carbonFootprint;
+        bool isCompliant;
+        // Additional metadata URI for ESG reports
+        string esgReportURI;
+    }
+
+    // State variables
+    CountersUpgradeable.Counter private _assetIds;
+    mapping(uint256 => GalliumAsset) public galliumAssets;
+
+    // Events for asset lifecycle
+    event GalliumAssetRegistered(uint256 indexed assetId, GalliumAsset asset);
+    event ComplianceStatusUpdated(uint256 indexed assetId, bool complianceStatus);
+    event SustainabilityMetricsUpdated(uint256 indexed assetId, uint256 carbonFootprint);
+    event ESGReportPublished(uint256 indexed assetId, string esgReportURI);
+
+    // Access control roles
+    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
+
+    // Contract initialization
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __ERC721URIStorage_init();
+        __AccessControlEnumerable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    // Function to register a new Gallium asset
+    function registerGalliumAsset(uint256 weight, string memory location, string memory metadataURI) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetIds.increment();
+        uint256 newAssetId = _assetIds.current();
+        
+        // Initialize the asset with default values
+        GalliumAsset memory newAsset = GalliumAsset(weight, location, 0, false, "");
+        galliumAssets[newAssetId] = newAsset;
+        
+        // Mint a new NFT for the asset
+        _mint(msg.sender, newAssetId);
+        _setTokenURI(newAssetId, metadataURI);
+        
+        emit GalliumAssetRegistered(newAssetId, newAsset);
+    }
+
+    // Functions for verifier role to update compliance and sustainability metrics
+    // Assume these functions interact with oracles or external data sources to fetch and update data
+
+    // Placeholder function for updating compliance status
+    function updateComplianceStatus(uint256 assetId, bool complianceStatus) public onlyRole(VERIFIER_ROLE) {
+        // Update the compliance status of the asset
+        galliumAssets[assetId].isCompliant = complianceStatus;
+        emit ComplianceStatusUpdated(assetId, complianceStatus);
+    }
+
+    // Placeholder function for publishing ESG reports
+    function publishESGReport(uint256 assetId, string memory esgReportURI) public onlyRole(VERIFIER_ROLE) {
+        // Update the ESG report URI for the asset
+        galliumAssets[assetId].esgReportURI = esgReportURI;
+        emit ESGReportPublished(assetId, esgReportURI);
+    }
+
+    // UUPS Upgradeable override
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    // Additional functions to interact with oracles, external APIs, or manual inputs for asset verification and sustainability metrics can be added here.
+}
