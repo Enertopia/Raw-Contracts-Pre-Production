@@ -39,7 +39,7 @@ contract GovernanceFractionalShares is Initializable, ERC20Upgradeable, AccessCo
 /**
  * @dev Implements an upgradeable NFT contract with expanded environmental data and fractional ownership capabilities.
  */
-contract EnhancedRobidiumNFT is Initializable, ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+contract EnhancedRubidiumNFT is Initializable, ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
     using CountersUpgradeable for CountersUpgradeable.Counter;
     using EnumerableSetUpgradeable for EnumerableSetUpgradeable.AddressSet;
 
