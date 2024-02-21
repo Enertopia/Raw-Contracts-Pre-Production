@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
+
+/**
+ * @dev Extension of {ERC20Upgradeable} that adds a governance mechanism to fractional shares.
+ */
+contract GovernanceFractionalShares is Initializable, ERC20Upgradeable, AccessControlEnumerableUpgradeable {
+    bytes32 public constant GOVERNANCE_ROLE = keccak256("GOVERNANCE_ROLE");
+
+    function initializeGovernanceShares(
+        string memory name,
+        string memory symbol,
+        address admin
+    ) public initializer {
+        __ERC20_init(name, symbol);
+        __AccessControl_init();
+        _setupRole(DEFAULT_ADMIN_ROLE, admin);
+        _setupRole(GOVERNANCE_ROLE, admin);
+    }
+
+    function mintShares(address to, uint256 amount) public onlyRole(GOVERNANCE_ROLE) {
+        _mint(to, amount);
+    }
+
+    function burnShares(address from, uint256 amount) public onlyRole(GOVERNANCE_ROLE) {
+        _burn(from, amount);
+    }
+}
+
+/**
+ * @dev Implements an upgradeable NFT contract with expanded environmental data and fractional ownership capabilities.
+ */
+contract EnhancedRobidiumNFT is Initializable, ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.AddressSet;
+
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+    bytes32 public constant DATA_UPDATER_ROLE = keccak256("DATA_UPDATER_ROLE");
+
+    CountersUpgradeable.Counter private _tokenIdCounter;
+    mapping(uint256 => address) private _fractionalizedNFTs;
+    mapping(uint256 => EnumerableSetUpgradeable.AddressSet) private _verifiedDataUpdaters;
+
+    struct EnvironmentalData {
+        string data;
+        bool verified;
+    }
+    mapping(uint256 => EnvironmentalData) private _tokenEnvironmentalData;
+
+    event NFTFractionalized(uint256 indexed tokenId, address sharesContract);
+    event NFTDefractionalized(uint256 indexed tokenId);
+    event EnvironmentalDataUpdated(uint256 indexed tokenId, string data, bool verified);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __AccessControl_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(MINTER_ROLE, _msgSender());
+        _setupRole(UPGRADER_ROLE, _msgSender());
+        _setupRole(DATA_UPDATER_ROLE, _msgSender());
+    }
+
+    function mintNFT(address recipient, string memory metadataURI) public onlyRole(MINTER_ROLE) {
+        _tokenIdCounter.increment();
+        uint256 newItemId = _tokenIdCounter.current();
+        _mint(recipient, newItemId);
+        _setTokenURI(newItemId, metadataURI);
+    }
+
+    function fractionalizeNFT(uint256 tokenId, string memory sharesName, string memory sharesSymbol, uint256 totalShares) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_exists(tokenId), "NFT does not exist");
+        require(_fractionalizedNFTs[tokenId] == address(0), "NFT is already fractionalized");
+
+        GovernanceFractionalShares shares = new GovernanceFractionalShares();
+        shares.initializeGovernanceShares(sharesName, sharesSymbol, _msgSender());
+        shares.mintShares(_msgSender(), totalShares);
+
+        _fractionalizedNFTs[tokenId] = address(shares);
+        emit NFTFractionalized(tokenId, address(shares));
+    }
+
+    function defractionalizeNFT(uint256 tokenId) public nonReentrant {
+        address sharesAddress = _fractionalizedNFTs[tokenId];
+        require(sharesAddress != address(0), "NFT is not fractionalized");
+        GovernanceFractionalShares shares = GovernanceFractionalShares(sharesAddress);
+
+        require(shares.balanceOf(_msgSender()) == shares.totalSupply(), "Caller does not own all shares");
+        shares.burnShares(_msgSender(), shares.totalSupply());
+
+        delete _fractionalizedNFTs[tokenId];
+        emit NFTDefractionalized(tokenId);
+    }
+
+    function updateEnvironmentalData(uint256 tokenId, string memory data, bool verified) public onlyRole(DATA_UPDATER_ROLE) {
+        require(_exists(tokenId), "NFT does not exist");
+        _tokenEnvironmentalData[tokenId] = EnvironmentalData(data, verified);
+        emit EnvironmentalDataUpdated(tokenId, data, verified);
+    }
+
+    function getEnvironmentalData(uint256 tokenId) public view returns (EnvironmentalData memory) {
+        require(_exists(tokenId), "NFT does not exist");
+        return _tokenEnvironmentalData[tokenId];
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+
+    // Additional utility functions and overrides as needed...
+}
