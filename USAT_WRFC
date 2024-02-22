@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+
+contract USATWRFC is Initializable, ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    using SafeMathUpgradeable for uint256;
+
+    CountersUpgradeable.Counter private _tokenIdCounter;
+    mapping(uint256 => uint256) private _environmentalImpactScores;
+    mapping(uint256 => bool) private _isStaked;
+    mapping(address => uint256) private _participantReputation;
+    mapping(uint256 => address) private _projectStakedFor;
+
+    bytes32 public constant ROLE_ADMIN = DEFAULT_ADMIN_ROLE;
+    bytes32 public constant ROLE_VERIFIER = keccak256("ROLE_VERIFIER");
+    bytes32 public constant ROLE_MINTER = keccak256("ROLE_MINTER");
+
+    event WaterRecyclingCreditMinted(uint256 indexed tokenId, address indexed owner, string tokenURI);
+    event EnvironmentalImpactScoreUpdated(uint256 indexed tokenId, uint256 newScore);
+    event NFTStaked(uint256 indexed tokenId, address indexed projectAddress);
+    event NFTUnstaked(uint256 indexed tokenId, address indexed projectAddress);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __ERC721URIStorage_init();
+        __AccessControlEnumerable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+
+        _setupRole(ROLE_ADMIN, _msgSender());
+        _setupRole(ROLE_VERIFIER, _msgSender());
+        _setupRole(ROLE_MINTER, _msgSender());
+    }
+
+    function mintWaterRecyclingCredit(address to, string memory tokenURI) public onlyRole(ROLE_MINTER) {
+        _tokenIdCounter.increment();
+        uint256 tokenId = _tokenIdCounter.current();
+        _mint(to, tokenId);
+        _setTokenURI(tokenId, tokenURI);
+        emit WaterRecyclingCreditMinted(tokenId, to, tokenURI);
+    }
+
+    function updateEnvironmentalImpactScore(uint256 tokenId, uint256 newScore) public onlyRole(ROLE_VERIFIER) {
+        require(_exists(tokenId), "Token does not exist");
+        _environmentalImpactScores[tokenId] = newScore;
+        emit EnvironmentalImpactScoreUpdated(tokenId, newScore);
+    }
+
+    function stakeNFT(uint256 tokenId, address projectAddress) public {
+        require(ownerOf(tokenId) == msg.sender, "Only the owner can stake the NFT");
+        require(!_isStaked[tokenId], "NFT is already staked");
+
+        _isStaked[tokenId] = true;
+        _projectStakedFor[tokenId] = projectAddress;
+        // Logic to handle staking, such as transferring the NFT to a contract or locking it
+        emit NFTStaked(tokenId, projectAddress);
+    }
+
+    function unstakeNFT(uint256 tokenId) public {
+        require(_isStaked[tokenId], "NFT is not staked");
+        require(_projectStakedFor[tokenId] == msg.sender, "Only the project can unstake the NFT");
+
+        _isStaked[tokenId] = false;
+        // Logic to handle unstaking, such as returning the NFT to the original owner
+        emit NFTUnstaked(tokenId, msg.sender);
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ROLE_ADMIN) {}
+
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) 
+        internal 
+        override(ERC721Upgradeable, ERC721URIStorageUpgradeable) 
+    {
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    function supportsInterface(bytes4 interfaceId) 
+        public view 
+        override(ERC721Upgradeable, AccessControlEnumerableUpgradeable) 
+        returns (bool) 
+    {
+        return super.supportsInterface(interfaceId);
+    }
+
+    function tokenURI(uint256 tokenId) 
+        public view 
+        override(ERC721URIStorageUpgradeable, ERC721Upgradeable) 
+        returns (string memory) 
+    {
+        return super.tokenURI(tokenId);
+    }
+
+    // Additional functions for managing reputations, environmental scores, and more
+}
