@@ -9,13 +9,16 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
 
 contract USATCMCCarbonCreditToken is Initializable, ERC721URIStorageUpgradeable, OwnableUpgradeable, AccessControlUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
     using CountersUpgradeable for CountersUpgradeable.Counter;
+    using SafeMathUpgradeable for uint256;
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
+    bytes32 public constant AUDITOR_ROLE = keccak256("AUDITOR_ROLE"); // New role for auditing carbon credit data
 
     CountersUpgradeable.Counter private _tokenIdCounter;
 
@@ -23,16 +26,19 @@ contract USATCMCCarbonCreditToken is Initializable, ERC721URIStorageUpgradeable,
         uint256 timestamp;
         string projectIdentifier;
         uint256 carbonTonnes;
-        string conversionProcess; // Additional field for conversion process description
+        string conversionProcess;
+        bool audited; // Flag indicating whether the credit has been audited
     }
 
     mapping(uint256 => CarbonCreditData) private _carbonCreditsData;
 
-    event CarbonCreditMinted(address indexed to, uint256 indexed tokenId, string projectIdentifier, uint256 carbonTonnes, string conversionProcess);
+    event CarbonCreditMinted(address indexed to, uint256 indexed tokenId, CarbonCreditData creditData);
     event CarbonCreditBurned(uint256 indexed tokenId);
+    event CarbonCreditAudited(uint256 indexed tokenId, bool audited); // New event for auditing
 
-    function initialize() public initializer {
-        __ERC721_init("USAT Carbon Mineralization Credit", "CMC");
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __ERC721URIStorage_init();
         __Ownable_init();
         __AccessControl_init();
         __UUPSUpgradeable_init();
@@ -43,52 +49,60 @@ contract USATCMCCarbonCreditToken is Initializable, ERC721URIStorageUpgradeable,
         _setupRole(MINTER_ROLE, _msgSender());
         _setupRole(PAUSER_ROLE, _msgSender());
         _setupRole(BURNER_ROLE, _msgSender());
-    }
-
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
-
-    function pause() public onlyRole(PAUSER_ROLE) {
-        _pause();
-    }
-
-    function unpause() public onlyRole(PAUSER_ROLE) {
-        _unpause();
+        _setupRole(AUDITOR_ROLE, _msgSender()); // Setup auditor role
     }
 
     function safeMint(address to, string memory uri, string memory projectIdentifier, uint256 carbonTonnes, string memory conversionProcess) public onlyRole(MINTER_ROLE) nonReentrant whenNotPaused {
-        require(to != address(0), "Mint to the zero address");
-        require(bytes(projectIdentifier).length > 0, "Project identifier is empty");
-        require(bytes(conversionProcess).length > 0, "Conversion process description is empty");
-        require(carbonTonnes > 0, "Carbon tonnes must be positive");
+        validateMintParameters(to, projectIdentifier, carbonTonnes, conversionProcess);
 
         uint256 tokenId = _tokenIdCounter.current();
         _tokenIdCounter.increment();
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, uri);
 
-        _carbonCreditsData[tokenId] = CarbonCreditData({
+        CarbonCreditData memory newCredit = CarbonCreditData({
             timestamp: block.timestamp,
             projectIdentifier: projectIdentifier,
             carbonTonnes: carbonTonnes,
-            conversionProcess: conversionProcess // Store the conversion process
+            conversionProcess: conversionProcess,
+            audited: false // Initialize as not audited
         });
 
-        emit CarbonCreditMinted(to, tokenId, projectIdentifier, carbonTonnes, conversionProcess);
+        _carbonCreditsData[tokenId] = newCredit;
+        emit CarbonCreditMinted(to, tokenId, newCredit);
+    }
+
+    function auditCarbonCredit(uint256 tokenId, bool audited) public onlyRole(AUDITOR_ROLE) {
+        require(_exists(tokenId), "Token does not exist.");
+        CarbonCreditData storage credit = _carbonCreditsData[tokenId];
+        credit.audited = audited;
+
+        emit CarbonCreditAudited(tokenId, audited);
     }
 
     function burn(uint256 tokenId) public onlyRole(BURNER_ROLE) {
-        require(_exists(tokenId), "Burn for nonexistent token");
+        require(_exists(tokenId), "Token does not exist.");
         _burn(tokenId);
         delete _carbonCreditsData[tokenId];
+
         emit CarbonCreditBurned(tokenId);
     }
 
     function getCarbonCreditData(uint256 tokenId) public view returns (CarbonCreditData memory) {
-        require(_exists(tokenId), "Query for nonexistent token");
+        require(_exists(tokenId), "Token does not exist.");
         return _carbonCreditsData[tokenId];
     }
 
-    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721Upgradeable) whenNotPaused {
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override whenNotPaused {
         super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    function validateMintParameters(address to, string memory projectIdentifier, uint256 carbonTonnes, string memory conversionProcess) internal pure {
+        require(to != address(0), "Zero address");
+        require(bytes(projectIdentifier).length > 0, "Empty project identifier");
+        require(bytes(conversionProcess).length > 0, "Empty conversion process");
+        require(carbonTonnes > 0, "Carbon tonnes must be positive");
     }
 }
