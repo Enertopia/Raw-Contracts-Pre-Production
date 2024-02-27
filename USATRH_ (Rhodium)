@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+
+contract USATRH is Initializable, ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    using SafeMathUpgradeable for uint256;
+
+    CountersUpgradeable.Counter private _depositIdCounter;
+
+    struct RhodiumDeposit {
+        string depositIdentifier;
+        uint256 sizeInGrams;
+        uint256 purityPercentage; // Represented as a value between 0 and 100
+        string location; // Geographical location
+        bool verified;
+        address depositOwner;
+    }
+
+    mapping(uint256 => RhodiumDeposit) private _deposits;
+    bytes32 public constant ROLE_DEPOSIT_REGISTRATOR = keccak256("ROLE_DEPOSIT_REGISTRATOR");
+    bytes32 public constant ROLE_VERIFIER = keccak256("ROLE_VERIFIER");
+
+    event DepositRegistered(uint256 indexed depositId, string depositIdentifier, address depositOwner);
+    event DepositVerified(uint256 indexed depositId, bool verified);
+    event NFTMinted(uint256 indexed tokenId, uint256 indexed depositId, address recipient);
+
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __ERC721URIStorage_init();
+        __ERC721Enumerable_init();
+        __AccessControlEnumerable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+    }
+
+    function registerDeposit(string memory depositIdentifier, uint256 sizeInGrams, uint256 purityPercentage, string memory location, address depositOwner) public onlyRole(ROLE_DEPOSIT_REGISTRATOR) {
+        _depositIdCounter.increment();
+        uint256 depositId = _depositIdCounter.current();
+        _deposits[depositId] = RhodiumDeposit(depositIdentifier, sizeInGrams, purityPercentage, location, false, depositOwner);
+        emit DepositRegistered(depositId, depositIdentifier, depositOwner);
+    }
+
+    function verifyDeposit(uint256 depositId) public onlyRole(ROLE_VERIFIER) {
+        require(!_deposits[depositId].verified, "Deposit already verified");
+        _deposits[depositId].verified = true;
+        emit DepositVerified(depositId, true);
+    }
+
+    function mintNFT(uint256 depositId, address recipient) public {
+        require(_deposits[depositId].verified, "Deposit not verified");
+        require(hasRole(ROLE_DEPOSIT_REGISTRATOR, _deposits[depositId].depositOwner), "Caller is not deposit owner or authorized registratar");
+
+        _depositIdCounter.increment();
+        uint256 tokenId = _depositIdCounter.current();
+        _mint(recipient, tokenId);
+
+        string memory metadataURI = generateMetadataURI(depositId);
+        _setTokenURI(tokenId, metadataURI);
+
+        emit NFTMinted(tokenId, depositId, recipient);
+    }
+
+    function generateMetadataURI(uint256 depositId) internal view returns (string memory) {
+        // Implement logic to generate a metadata URI based on deposit details
+        return string(abi.encodePacked("https://example.com/api/rhodium/", Strings.toString(depositId)));
+    }
+
+    function getDepositDetails(uint256 depositId) public view returns (RhodiumDeposit memory) {
+        require(_deposits[depositId].depositOwner != address(0), "Deposit does not exist");
+        return _deposits[depositId];
+    }
+
+    // Override functions from OpenZeppelin contracts for compatibility
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable) {
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    function _burn(uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721Upgradeable) {
+        super._burn(tokenId);
+    }
+
+    function tokenURI(uint256 tokenId) public view override(ERC721URIStorageUpgradeable, ERC721Upgradeable) returns (string memory) {
+        return super.tokenURI(tokenId);
+    }
+}
