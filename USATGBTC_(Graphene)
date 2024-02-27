@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
+
+contract USATGBTC is Initializable, ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    using SafeMathUpgradeable for uint256;
+
+    CountersUpgradeable.Counter private _creditIdCounter;
+
+    // Struct for graphene project details
+    struct GrapheneProject {
+        string name;
+        string description;
+        uint256 expectedImpact;
+        uint256 purityPercentage;
+        uint256 quantity;
+        string location;
+        bool verified;
+        address projectRegistrar;
+        string metadataURI;
+        uint256 creationDate;
+    }
+
+    // Roles for managing project registration and verification
+    bytes32 public constant ROLE_REGISTRAR = keccak256("ROLE_REGISTRAR");
+    bytes32 public constant ROLE_AUDITOR = keccak256("ROLE_AUDITOR");
+
+    // Mapping from project ID to project details
+    mapping(uint256 => GrapheneProject) private _projects;
+
+    // Events
+    event ProjectRegistered(uint256 indexed projectId, string name, address projectRegistrar, string metadataURI);
+    event ProjectVerified(uint256 indexed projectId, bool verified);
+    event CreditIssued(uint256 indexed creditId, uint256 indexed projectId, address recipient);
+
+    // Initializer function replaces constructor for upgradeable contracts
+    function initialize(string memory name, string memory symbol) public initializer {
+        __ERC721_init(name, symbol);
+        __ERC721URIStorage_init();
+        __ERC721Enumerable_init();
+        __AccessControlEnumerable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+    }
+
+    // Function to register a new graphene project
+    function registerProject(
+        string memory name,
+        string memory description,
+        uint256 expectedImpact,
+        uint256 purityPercentage,
+        uint256 quantity,
+        string memory location,
+        string memory metadataURI
+    ) public onlyRole(ROLE_REGISTRAR) {
+        _creditIdCounter.increment();
+        uint256 projectId = _creditIdCounter.current();
+        
+        // Current block timestamp as project creation date
+        uint256 creationDate = block.timestamp;
+
+        _projects[projectId] = GrapheneProject({
+            name: name,
+            description: description,
+            expectedImpact: expectedImpact,
+            purityPercentage: purityPercentage,
+            quantity: quantity,
+            location: location,
+            verified: false,
+            projectRegistrar: _msgSender(),
+            metadataURI: metadataURI,
+            creationDate: creationDate
+        });
+
+        emit ProjectRegistered(projectId, name, _msgSender(), metadataURI);
+    }
+
+    // Function to verify a project
+    function verifyProject(uint256 projectId) public onlyRole(ROLE_AUDITOR) {
+        require(!_projects[projectId].verified, "Project already verified");
+        _projects[projectId].verified = true;
+        emit ProjectVerified(projectId, true);
+    }
+
+    // Function to issue a credit (NFT) for a verified graphene project
+    function issueCredit(uint256 projectId, address recipient) public {
+        require(_projects[projectId].verified, "Project not verified");
+        require(hasRole(ROLE_REGISTRAR, _projects[projectId].projectRegistrar), "Caller is not project registrar");
+
+        _creditIdCounter.increment();
+        uint256 creditId = _creditIdCounter.current();
+        _mint(recipient, creditId);
+        _setTokenURI(creditId, _projects[projectId].metadataURI);
+
+        emit CreditIssued(creditId, projectId, recipient);
+    }
+
+    // Function to get project details
+    function getProjectDetails(uint256 projectId) public view returns (GrapheneProject memory) {
+        require(_projects[projectId].projectRegistrar != address(0), "Project does not exist");
+        return _projects[projectId];
+    }
+
+    // Override functions for compatibility and security
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable) {
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    function _burn(uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721Upgradeable) {
+        super._burn(tokenId);
+    }
+
+    function tokenURI(uint256 tokenId) public view override(ERC721URIStorageUpgradeable, ERC721Upgradeable) returns (string memory) {
+        return super.tokenURI(tokenId);
+    }
+}
