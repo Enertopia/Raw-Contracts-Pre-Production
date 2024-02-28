@@ -2,93 +2,78 @@
 pragma solidity ^0.8.23;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
 
-contract EnhancedCesiumNFT is Initializable, ERC721URIStorageUpgradeable, ERC721EnumerableUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+contract EnhancedCesiumNFT is Initializable, ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
     using CountersUpgradeable for CountersUpgradeable.Counter;
 
-    // State variables
     CountersUpgradeable.Counter private _tokenIdCounter;
-
-    // Define roles
     bytes32 public constant ROLE_MINTER = keccak256("ROLE_MINTER");
+    bytes32 public constant ROLE_ADMIN = keccak256("ROLE_ADMIN");
     bytes32 public constant ROLE_METADATA_MANAGER = keccak256("ROLE_METADATA_MANAGER");
 
-    // Events
+    // Custom events
     event MetadataUpdated(uint256 indexed tokenId, string newMetadataURI);
-    event NFTBatchMinted(address indexed minter, uint256 startTokenId, uint256 endTokenId);
+    event NFTMinted(address indexed recipient, uint256 tokenId, string metadataURI);
+    event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender);
 
-    // Initialization function
     function initialize(string memory name, string memory symbol) public initializer {
         __ERC721_init(name, symbol);
-        __ERC721URIStorage_init();
-        __ERC721Enumerable_init();
         __AccessControlEnumerable_init();
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
 
-        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender()); // Assigns the deployer as the default admin
-        _setupRole(ROLE_MINTER, _msgSender()); // Deployer can mint initially
-        _setupRole(ROLE_METADATA_MANAGER, _msgSender()); // Deployer can manage metadata initially
+        _setupRole(ROLE_ADMIN, _msgSender());
+        _setRoleAdmin(ROLE_MINTER, ROLE_ADMIN);
+        _setRoleAdmin(ROLE_METADATA_MANAGER, ROLE_ADMIN);
+
+        // Granting initial roles
+        _grantRole(ROLE_MINTER, _msgSender());
+        _grantRole(ROLE_METADATA_MANAGER, _msgSender());
     }
 
-    // Minting function
     function mintNFT(address recipient, string memory metadataURI) public onlyRole(ROLE_MINTER) {
-        _mintSingleNFT(recipient, metadataURI);
-    }
-
-    // Optimized batch minting function
-    function batchMintNFT(address recipient, string[] calldata metadataURIs) public onlyRole(ROLE_MINTER) {
-        require(metadataURIs.length > 0, "CesiumNFT: Must mint at least one NFT");
-        uint256 startTokenId = _tokenIdCounter.current() + 1;
-
-        for (uint256 i = 0; i < metadataURIs.length; i++) {
-            _mintSingleNFT(recipient, metadataURIs[i]);
-        }
-
-        uint256 endTokenId = _tokenIdCounter.current();
-        emit NFTBatchMinted(_msgSender(), startTokenId, endTokenId);
-    }
-
-    // Internal function to handle single NFT minting, used by both mintNFT and batchMintNFT
-    function _mintSingleNFT(address recipient, string memory metadataURI) internal {
+        require(bytes(metadataURI).length > 0, "EnhancedCesiumNFT: Metadata URI cannot be empty");
         _tokenIdCounter.increment();
         uint256 newItemId = _tokenIdCounter.current();
         _mint(recipient, newItemId);
         _setTokenURI(newItemId, metadataURI);
+        emit NFTMinted(recipient, newItemId, metadataURI);
     }
 
-    // Metadata update function
     function updateMetadata(uint256 tokenId, string memory newMetadataURI) public onlyRole(ROLE_METADATA_MANAGER) {
-        require(_exists(tokenId), "CesiumNFT: URI update of nonexistent token");
+        require(_exists(tokenId), "EnhancedCesiumNFT: URI update of nonexistent token");
+        require(bytes(newMetadataURI).length > 0, "EnhancedCesiumNFT: New metadata URI cannot be empty");
         _setTokenURI(tokenId, newMetadataURI);
         emit MetadataUpdated(tokenId, newMetadataURI);
     }
 
-    // Override functions to include hooks for ERC721Enumerable and ERC721URIStorage
-    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721Upgradeable, ERC721EnumerableUpgradeable) {
+    // Enhanced role management
+    function grantRole(bytes32 role, address account) public override onlyRole(getRoleAdmin(role)) {
+        super.grantRole(role, account);
+        emit RoleGranted(role, account, _msgSender());
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ROLE_ADMIN) {}
+
+    // Ensuring compatibility with ERC721 and AccessControlEnumerable
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal override(ERC721URIStorageUpgradeable) {
         super._beforeTokenTransfer(from, to, tokenId);
     }
 
-    function supportsInterface(bytes4 interfaceId) public view override(ERC721Upgradeable, AccessControlEnumerableUpgradeable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721URIStorageUpgradeable, AccessControlEnumerableUpgradeable) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 
-    // Authorization for contract upgrade
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
-
-    // Override _burn to ensure metadata is also cleared upon token burn
-    function _burn(uint256 tokenId) internal override(ERC721URIStorageUpgradeable, ERC721Upgradeable) {
-        super._burn(tokenId);
-    }
-
-    // Ensure the tokenURI function correctly fetches metadata
-    function tokenURI(uint256 tokenId) public view override(ERC721URIStorageUpgradeable, ERC721Upgradeable) returns (string memory) {
+    function tokenURI(uint256 tokenId) public view override(ERC721URIStorageUpgradeable) returns (string memory) {
         return super.tokenURI(tokenId);
     }
+
+    // Custom functions for extended functionality (if necessary)
+    // function customFunctionality(...) public { ... }
 }
+
