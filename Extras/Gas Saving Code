@@ -1,0 +1,82 @@
+# Coded by Emiliano German Solazzi Griminger for TitleChain 2024
+
+require('dotenv').config();
+const { ethers } = require('ethers');
+
+// Load environment variables
+const { PROVIDER_URL, PRIVATE_KEY, CONTRACT_ADDRESS } = process.env;
+const contractABI = [/* ABI JSON here */];
+
+// Initialize ethers components
+const provider = new ethers.providers.JsonRpcProvider(PROVIDER_URL);
+const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, wallet);
+
+/**
+ * Estimates gas price with an added buffer for higher transaction success rate.
+ * @returns {Promise<ethers.BigNumber>} The adjusted gas price.
+ */
+async function estimateAdjustedGasPrice() {
+    const baseGasPrice = await provider.getGasPrice();
+    // Adjust this buffer percentage based on your preference for speed over cost
+    const bufferPercentage = 20;
+    return baseGasPrice.mul(100 + bufferPercentage).div(100);
+}
+
+/**
+ * Sends an Ethereum transaction with retry logic for reliability.
+ * @param {Object} txData - The transaction data.
+ * @param {number} [retries=3] - Maximum retry attempts.
+ * @returns {Promise<ethers.providers.TransactionReceipt>} The transaction receipt.
+ */
+async function sendTransactionWithRetry(txData, retries = 3) {
+    for (let attempt = 0; attempt < retries; attempt++) {
+        try {
+            const gasPrice = await estimateAdjustedGasPrice();
+            const tx = await wallet.sendTransaction({ ...txData, gasPrice });
+            console.log(`Transaction sent (attempt ${attempt + 1}): ${tx.hash}`);
+            const receipt = await tx.wait();
+            console.log(`Transaction confirmed: ${receipt.transactionHash}`);
+            return receipt;
+        } catch (error) {
+            console.error(`Transaction attempt ${attempt + 1} failed: ${error.message}`);
+            if (attempt < retries - 1) {
+                // Exponential back-off strategy for retrying
+                const backoffTime = Math.pow(2, attempt) * 1000;
+                console.log(`Retrying in ${backoffTime / 1000} seconds...`);
+                await new Promise(resolve => setTimeout(resolve, backoffTime));
+            } else {
+                throw new Error('Transaction failed after maximum retry attempts.');
+            }
+        }
+    }
+}
+
+/**
+ * Encodes batch data for contract interaction and sends the transaction.
+ * @param {Array} batchData - The data to be processed in batch.
+ */
+async function processBatchData(batchData) {
+    // Example: Adjust this to match your contract's batch processing function
+    const txData = {
+        to: CONTRACT_ADDRESS,
+        data: contract.interface.encodeFunctionData('processBatch', [batchData]),
+        // Additional fields like gasLimit can be dynamically estimated or set here
+    };
+
+    try {
+        await sendTransactionWithRetry(txData);
+    } catch (error) {
+        console.error('Failed to process batch data:', error.message);
+    }
+}
+
+(async () => {
+    try {
+        // Example usage with mock batch data
+        const batchData = ['data1', 'data2', 'data3'];
+        await processBatchData(batchData);
+    } catch (error) {
+        console.error('An error occurred:', error);
+    }
+})();
